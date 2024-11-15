@@ -9,45 +9,63 @@ import org.reflections.Reflections;
 import pl.pomoku.mcframework.annotation.CommandComponent;
 import pl.pomoku.mcframework.annotation.Component;
 import pl.pomoku.mcframework.annotation.ListenerComponent;
+import pl.pomoku.mcframework.config.ConfigInjector;
+import pl.pomoku.mcframework.config.ConfigManager;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
 @RequiredArgsConstructor
-public class DIContainer {
+public class McFramework {
 
-    private final Map<Class<?>, Object> components = new HashMap<>();
+    private static final Map<Class<?>, Object> components = new HashMap<>();
     private final JavaPlugin plugin;
 
+    private ConfigManager configManager;
+    private ConfigInjector configInjector;
+
     public static void initialize(JavaPlugin plugin, String basePackage) {
-        DIContainer container = new DIContainer(plugin);
-        container.scanAndRegisterComponents(basePackage);
+        McFramework container = new McFramework(plugin);
+
+        container.configManager = new ConfigManager(plugin);
+        container.configInjector = new ConfigInjector(container.configManager);
+
+        container.registerComponents(basePackage);
+        container.instantiateComponents();
         container.registerListeners();
         container.registerCommands();
     }
 
-    public void scanAndRegisterComponents(String basePackage) {
-        Reflections reflections = new Reflections(basePackage);
-
-        Set<Class<?>> componentClasses = reflections.getTypesAnnotatedWith(Component.class);
-        componentClasses.forEach(this::registerComponent);
-
-        Set<Class<?>> listenerClasses = reflections.getTypesAnnotatedWith(ListenerComponent.class);
-        listenerClasses.forEach(this::registerComponent);
-
-        Set<Class<?>> commandClasses = reflections.getTypesAnnotatedWith(CommandComponent.class);
-        commandClasses.forEach(this::registerComponent);
+    public static  <T> T getComponent(Class<T> clazz) {
+        if (components.containsKey(clazz)) {
+            return clazz.cast(components.get(clazz));
+        } else {
+            throw new IllegalArgumentException("Component not found for class: " + clazz.getName());
+        }
     }
 
-    public void registerComponent(Class<?> clazz) {
-        if (this.components.containsKey(clazz)) return;
+    private void registerComponents(String basePackage) {
+        Reflections reflections = new Reflections(basePackage);
+        Set<Class<?>> componentClasses = reflections.getTypesAnnotatedWith(Component.class);
+
+        componentClasses.forEach(clazz -> components.put(clazz, null));
+    }
+
+    private void instantiateComponents() {
+        components.keySet().forEach(this::createInstanceIfAbsent);
+    }
+
+    private synchronized void createInstanceIfAbsent(Class<?> clazz) {
+        if (components.get(clazz) != null) return;
 
         try {
             Object instance = createInstanceWithDependencies(clazz);
-            this.components.put(clazz, instance);
+            components.put(clazz, instance);
+
+            this.configInjector.injectConfigValues(instance);
         } catch (Exception e) {
-            throw new RuntimeException("Error while registering component: %s");
+            throw new RuntimeException("Error creating instance for: " + clazz.getName(), e);
         }
     }
 
@@ -57,25 +75,21 @@ public class DIContainer {
         var parameters = new Object[parameterTypes.length];
 
         for (int i = 0; i < parameterTypes.length; i++) {
-            parameters[i] = resolveDependency(parameterTypes[i]);
+            parameters[i] = getDependency(parameterTypes[i]);
         }
 
         return constructor.newInstance(parameters);
     }
 
-    private Object resolveDependency(Class<?> dependencyClass) {
-        return this.components.computeIfAbsent(dependencyClass, clazz -> {
-            try {
-                registerComponent(clazz);
-                return this.components.get(clazz);
-            } catch (Exception e) {
-                throw new RuntimeException(String.format("Unable to create an instance for class: %s", clazz.getName()), e);
-            }
+    private Object getDependency(Class<?> dependencyClass) {
+        return components.computeIfAbsent(dependencyClass, clazz -> {
+            createInstanceIfAbsent(clazz);
+            return components.get(clazz);
         });
     }
 
     private void registerListeners() {
-        this.components.values().stream()
+        components.values().stream()
                 .filter(component -> component.getClass().isAnnotationPresent(ListenerComponent.class))
                 .forEach(listener -> registerListener((Listener) listener));
     }
@@ -85,12 +99,12 @@ public class DIContainer {
     }
 
     private void registerCommands() {
-        this.components.values().stream()
+        components.values().stream()
                 .filter(component -> component.getClass().isAnnotationPresent(CommandComponent.class))
                 .forEach(this::handleCommandObject);
     }
 
-    public void handleCommandObject(Object command) {
+    private void handleCommandObject(Object command) {
         if (command instanceof CommandExecutor commandExecutor) {
             CommandComponent annotation = command.getClass().getAnnotation(CommandComponent.class);
             String commandName = annotation.name();
@@ -103,13 +117,11 @@ public class DIContainer {
         }
     }
 
-    public void registerCommand(String name, CommandExecutor executor) {
+    private void registerCommand(String name, CommandExecutor executor) {
         PluginCommand pluginCommand = this.plugin.getCommand(name);
-
         if (pluginCommand == null) {
-            throw new NullPointerException("Command name is missing in plugin.yml for command: %s" + name);
+            throw new NullPointerException("Command name is missing in plugin.yml for command: " + name);
         }
-
         pluginCommand.setExecutor(executor);
     }
 }

@@ -1,4 +1,4 @@
-package pl.pomoku.mcframework.manager;
+package pl.pomoku.mcframework.config;
 
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -7,6 +7,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class ConfigManager {
     private final JavaPlugin plugin;
@@ -14,6 +15,25 @@ public class ConfigManager {
 
     public ConfigManager(JavaPlugin plugin) {
         this.plugin = plugin;
+        this.loadAllConfigs();
+    }
+
+    public void loadAllConfigs() {
+        File dataFolder = plugin.getDataFolder();
+
+        if (!dataFolder.exists()) {
+            boolean successfullyCreated = dataFolder.mkdirs();
+            if (!successfullyCreated) {
+                throw new RuntimeException("Failed to create data folder");
+            }
+        }
+
+        for (File file : Objects.requireNonNull(dataFolder.listFiles())) {
+            if (file.isFile() && file.getName().endsWith(".yml")) {
+                String fileName = file.getName().replace(".yml", "");
+                loadConfig(fileName);
+            }
+        }
     }
 
     public void loadConfig(String fileName) {
