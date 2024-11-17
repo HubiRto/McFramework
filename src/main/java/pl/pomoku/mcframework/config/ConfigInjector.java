@@ -2,6 +2,7 @@ package pl.pomoku.mcframework.config;
 
 import lombok.RequiredArgsConstructor;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.plugin.java.JavaPlugin;
 import pl.pomoku.mcframework.annotation.Component;
 import pl.pomoku.mcframework.annotation.ConfigProperty;
 
@@ -10,8 +11,8 @@ import java.util.List;
 import java.util.Map;
 
 @RequiredArgsConstructor
-public class ConfigInjector {
-    private final ConfigManager configManager;
+public class ConfigInjector<T extends JavaPlugin & ConfigurablePlugin> {
+    private final ConfigManager<T> configManager;
 
     public void injectConfigValues(Object instance) {
         Class<?> clazz = instance.getClass();

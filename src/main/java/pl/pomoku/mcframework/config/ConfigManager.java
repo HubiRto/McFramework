@@ -7,13 +7,12 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
-public class ConfigManager {
-    private final JavaPlugin plugin;
+public class ConfigManager<T extends JavaPlugin & ConfigurablePlugin> {
+    private final T plugin;
     private final Map<String, FileConfiguration> configurations = new HashMap<>();
 
-    public ConfigManager(JavaPlugin plugin) {
+    public ConfigManager(T plugin) {
         this.plugin = plugin;
         this.loadAllConfigs();
     }
@@ -28,20 +27,19 @@ public class ConfigManager {
             }
         }
 
-        for (File file : Objects.requireNonNull(dataFolder.listFiles())) {
-            if (file.isFile() && file.getName().endsWith(".yml")) {
-                String fileName = file.getName().replace(".yml", "");
-                loadConfig(fileName);
-            }
+        for (String fileName : plugin.getConfigFiles()) {
+            loadConfig(fileName);
         }
     }
 
     public void loadConfig(String fileName) {
-        File file = new File(this.plugin.getDataFolder(), fileName + ".yml");
+        File file = new File(plugin.getDataFolder(), fileName);
+
         if (!file.exists()) {
-            this.plugin.saveResource(fileName + ".yml", false);
+            plugin.saveResource(fileName, false);
         }
-        this.configurations.put(fileName, YamlConfiguration.loadConfiguration(file));
+
+        configurations.put(fileName.replace(".yml", ""), YamlConfiguration.loadConfiguration(file));
     }
 
     public FileConfiguration getConfig(String fileName) {

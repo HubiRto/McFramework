@@ -1,47 +1,52 @@
 package pl.pomoku.mcframework;
 
+import io.papermc.paper.command.brigadier.Commands;
+import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import lombok.RequiredArgsConstructor;
-import org.bukkit.command.CommandExecutor;
-import org.bukkit.command.PluginCommand;
-import org.bukkit.event.Listener;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.reflections.Reflections;
-import pl.pomoku.mcframework.annotation.CommandComponent;
-import pl.pomoku.mcframework.annotation.Component;
-import pl.pomoku.mcframework.annotation.ListenerComponent;
+import pl.pomoku.mcframework.annotation.*;
+import pl.pomoku.mcframework.command.AbstractCommand;
+import pl.pomoku.mcframework.command.Command;
+import pl.pomoku.mcframework.command.SubCommand;
 import pl.pomoku.mcframework.config.ConfigInjector;
 import pl.pomoku.mcframework.config.ConfigManager;
+import pl.pomoku.mcframework.config.ConfigurablePlugin;
 
+import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
 @RequiredArgsConstructor
-public class McFramework {
+public class McFramework<T extends JavaPlugin & ConfigurablePlugin> {
 
     private static final Map<Class<?>, Object> components = new HashMap<>();
-    private final JavaPlugin plugin;
+    private final T plugin;
 
-    private ConfigManager configManager;
-    private ConfigInjector configInjector;
+    private ConfigManager<T> configManager;
+    private ConfigInjector<T> configInjector;
 
-    public static void initialize(JavaPlugin plugin, String basePackage) {
-        McFramework container = new McFramework(plugin);
+    public static <T extends JavaPlugin & ConfigurablePlugin> void run(T plugin) {
+        McFramework<T> container = new McFramework<>(plugin);
+        String basePackage = plugin.getClass().getPackage().getName();
 
-        container.configManager = new ConfigManager(plugin);
-        container.configInjector = new ConfigInjector(container.configManager);
+        container.configManager = new ConfigManager<>(plugin);
+        container.configInjector = new ConfigInjector<>(container.configManager);
 
         container.registerComponents(basePackage);
+        container.registerConfigurationBeans(basePackage);
         container.instantiateComponents();
-        container.registerListeners();
-        container.registerCommands();
+//        container.registerListeners();
+        container.registerCommands(basePackage);
     }
 
-    public static  <T> T getComponent(Class<T> clazz) {
+    public static <T> T getComponent(Class<T> clazz) {
         if (components.containsKey(clazz)) {
             return clazz.cast(components.get(clazz));
         } else {
-            throw new IllegalArgumentException("Component not found for class: " + clazz.getName());
+            throw new IllegalArgumentException("Component or bean not found for class: " + clazz.getName());
         }
     }
 
@@ -50,6 +55,26 @@ public class McFramework {
         Set<Class<?>> componentClasses = reflections.getTypesAnnotatedWith(Component.class);
 
         componentClasses.forEach(clazz -> components.put(clazz, null));
+    }
+
+    private void registerConfigurationBeans(String basePackage) {
+        Reflections reflections = new Reflections(basePackage);
+        Set<Class<?>> configurationClasses = reflections.getTypesAnnotatedWith(Configuration.class);
+
+        for (Class<?> configClass : configurationClasses) {
+            Object configInstance = createInstanceWithDependencies(configClass);
+
+            for (Method method : configClass.getDeclaredMethods()) {
+                if (method.isAnnotationPresent(Bean.class)) {
+                    try {
+                        Object bean = method.invoke(configInstance);
+                        components.put(method.getReturnType(), bean);
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to create bean from method: " + method.getName(), e);
+                    }
+                }
+            }
+        }
     }
 
     private void instantiateComponents() {
@@ -69,59 +94,97 @@ public class McFramework {
         }
     }
 
-    private Object createInstanceWithDependencies(Class<?> clazz) throws Exception {
-        var constructor = clazz.getConstructors()[0];
-        var parameterTypes = constructor.getParameterTypes();
-        var parameters = new Object[parameterTypes.length];
+    private Object createInstanceWithDependencies(Class<?> clazz) {
+        try {
+            var constructor = clazz.getConstructors()[0];
+            var parameterTypes = constructor.getParameterTypes();
+            var parameters = new Object[parameterTypes.length];
 
-        for (int i = 0; i < parameterTypes.length; i++) {
-            parameters[i] = getDependency(parameterTypes[i]);
+            for (int i = 0; i < parameterTypes.length; i++) {
+                if (parameterTypes[i] == JavaPlugin.class) {
+                    parameters[i] = plugin;
+                } else {
+                    parameters[i] = resolveDependency(parameterTypes[i]);
+                }
+            }
+
+            return constructor.newInstance(parameters);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create instance for class: " + clazz.getName(), e);
         }
-
-        return constructor.newInstance(parameters);
     }
 
-    private Object getDependency(Class<?> dependencyClass) {
-        return components.computeIfAbsent(dependencyClass, clazz -> {
-            createInstanceIfAbsent(clazz);
-            return components.get(clazz);
+    private Object resolveDependency(Class<?> dependencyClass) {
+        if (components.containsKey(dependencyClass)) {
+            return components.get(dependencyClass);
+        }
+        return createInstanceWithDependencies(dependencyClass);
+    }
+
+//    private void registerListeners() {
+//        components.values().stream()
+//                .filter(component -> component.getClass().isAnnotationPresent(ListenerComponent.class))
+//                .forEach(listener -> registerListener((Listener) listener));
+//    }
+//
+//    private void registerListener(Listener listener) {
+//        this.plugin.getServer().getPluginManager().registerEvents(listener, this.plugin);
+//    }
+
+    private void registerCommand(Command command) {
+        plugin.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
+            final Commands commands = event.registrar();
+            if (command.getAliases() == null || command.getAliases().length == 0) {
+                commands.register(
+                        command.getName(),
+                        command.getDescription(),
+                        command
+                );
+            } else {
+                commands.register(
+                        command.getName(),
+                        command.getDescription(),
+                        Arrays.stream(command.getAliases()).toList(),
+                        command
+                );
+            }
         });
     }
 
-    private void registerListeners() {
-        components.values().stream()
-                .filter(component -> component.getClass().isAnnotationPresent(ListenerComponent.class))
-                .forEach(listener -> registerListener((Listener) listener));
-    }
+    private void registerCommands(String basePackage) {
+        Reflections reflections = new Reflections(basePackage);
 
-    private void registerListener(Listener listener) {
-        this.plugin.getServer().getPluginManager().registerEvents(listener, this.plugin);
-    }
+        Map<Class<?>, Command> commandMap = new HashMap<>();
+        Set<Class<?>> commandClasses = reflections.getTypesAnnotatedWith(Cmd.class);
+        for (Class<?> cmdClass : commandClasses) {
+            Command cmdInstance = (Command) createInstanceWithDependencies(cmdClass);
+            this.configInjector.injectConfigValues(cmdInstance);
+            commandMap.put(cmdClass, cmdInstance);
+        }
 
-    private void registerCommands() {
-        components.values().stream()
-                .filter(component -> component.getClass().isAnnotationPresent(CommandComponent.class))
-                .forEach(this::handleCommandObject);
-    }
+        Map<Class<?>, SubCommand> subCommandMap = new HashMap<>();
+        Set<Class<?>> subCommandClasses = reflections.getTypesAnnotatedWith(SubCmd.class);
+        for (Class<?> subCmdClass : subCommandClasses) {
+            SubCommand subCmdInstance = (SubCommand) createInstanceWithDependencies(subCmdClass);
+            this.configInjector.injectConfigValues(subCmdInstance);
+            subCommandMap.put(subCmdClass, subCmdInstance);
+        }
 
-    private void handleCommandObject(Object command) {
-        if (command instanceof CommandExecutor commandExecutor) {
-            CommandComponent annotation = command.getClass().getAnnotation(CommandComponent.class);
-            String commandName = annotation.name();
-
-            if (commandName.isEmpty()) {
-                throw new NullPointerException("The 'name' attribute in @CommandComponent cannot be empty");
+        for (SubCommand subCmdInstance : subCommandMap.values()) {
+            Class<? extends AbstractCommand> parentClass = subCmdInstance.getParent();
+            if (commandMap.containsKey(parentClass)) {
+                Command parentCommand = commandMap.get(parentClass);
+                parentCommand.addSubCommand(subCmdInstance);
+            } else if (subCommandMap.containsKey(parentClass)) {
+                SubCommand parentSubCommand = subCommandMap.get(parentClass);
+                parentSubCommand.addSubCommand(subCmdInstance);
+            } else {
+                throw new RuntimeException("Parent not found for SubCommand: " + subCmdInstance.getClass().getName());
             }
-
-            registerCommand(commandName, commandExecutor);
         }
-    }
 
-    private void registerCommand(String name, CommandExecutor executor) {
-        PluginCommand pluginCommand = this.plugin.getCommand(name);
-        if (pluginCommand == null) {
-            throw new NullPointerException("Command name is missing in plugin.yml for command: " + name);
+        for (Command cmdInstance : commandMap.values()) {
+            registerCommand(cmdInstance);
         }
-        pluginCommand.setExecutor(executor);
     }
 }
