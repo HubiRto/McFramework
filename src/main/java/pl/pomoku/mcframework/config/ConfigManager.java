@@ -3,6 +3,7 @@ package pl.pomoku.mcframework.config;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.yaml.snakeyaml.Yaml;
 
 import java.io.File;
 import java.util.HashMap;
@@ -10,7 +11,7 @@ import java.util.Map;
 
 public class ConfigManager<T extends JavaPlugin & ConfigurablePlugin> {
     private final T plugin;
-    private final Map<String, FileConfiguration> configurations = new HashMap<>();
+    private final Map<String, YamlConfiguration> configurations = new HashMap<>();
 
     public ConfigManager(T plugin) {
         this.plugin = plugin;
@@ -42,11 +43,12 @@ public class ConfigManager<T extends JavaPlugin & ConfigurablePlugin> {
         configurations.put(fileName.replace(".yml", ""), YamlConfiguration.loadConfiguration(file));
     }
 
-    public FileConfiguration getConfig(String fileName) {
+    public YamlConfiguration getConfig(String fileName) {
         return this.configurations.get(fileName);
     }
 
-    public String getConfigValue(String fileName, String path) {
-        return this.configurations.containsKey(fileName) ? this.configurations.get(fileName).getString(path) : null;
+    public <V> V getConfigValue(String fileName, String path, Class<V> type) {
+        if (!this.configurations.containsKey(fileName)) return null;
+        return type.cast(this.configurations.get(fileName).getString(path));
     }
 }

@@ -6,7 +6,7 @@
 
     <groupId>pl.pomoku</groupId>
     <artifactId>McFramework</artifactId>
-    <version>1.2</version>
+    <version>1.6</version>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -46,6 +46,11 @@
             <groupId>net.kyori</groupId>
             <artifactId>adventure-text-minimessage</artifactId>
             <version>4.17.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.7.4</version>
         </dependency>
     </dependencies>
 </project>

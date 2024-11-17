@@ -3,6 +3,7 @@ package pl.pomoku.mcframework;
 import io.papermc.paper.command.brigadier.Commands;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import lombok.RequiredArgsConstructor;
+import org.bukkit.event.Listener;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.reflections.Reflections;
 import pl.pomoku.mcframework.annotation.*;
@@ -12,6 +13,8 @@ import pl.pomoku.mcframework.command.SubCommand;
 import pl.pomoku.mcframework.config.ConfigInjector;
 import pl.pomoku.mcframework.config.ConfigManager;
 import pl.pomoku.mcframework.config.ConfigurablePlugin;
+import pl.pomoku.mcframework.database.DatabaseManager;
+import pl.pomoku.mcframework.database.TableGenerator;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -35,10 +38,11 @@ public class McFramework<T extends JavaPlugin & ConfigurablePlugin> {
         container.configManager = new ConfigManager<>(plugin);
         container.configInjector = new ConfigInjector<>(container.configManager);
 
+        container.initializeDatabase(basePackage);
         container.registerComponents(basePackage);
         container.registerConfigurationBeans(basePackage);
         container.instantiateComponents();
-//        container.registerListeners();
+        container.registerListeners(basePackage);
         container.registerCommands(basePackage);
     }
 
@@ -47,6 +51,19 @@ public class McFramework<T extends JavaPlugin & ConfigurablePlugin> {
             return clazz.cast(components.get(clazz));
         } else {
             throw new IllegalArgumentException("Component or bean not found for class: " + clazz.getName());
+        }
+    }
+
+    private void initializeDatabase(String basePackage) {
+        DatabaseConfig dbConfig = plugin.getClass().getAnnotation(DatabaseConfig.class);
+        if (dbConfig != null) {
+            DatabaseManager dbManager = new DatabaseManager(
+                    dbConfig,
+                    this.configManager.getConfig(dbConfig.configFile()),
+                    this.plugin.getLogger()
+            );
+            components.put(DatabaseManager.class, dbManager);
+            TableGenerator.createTables(dbManager.getConnection(), basePackage, plugin);
         }
     }
 
@@ -121,15 +138,21 @@ public class McFramework<T extends JavaPlugin & ConfigurablePlugin> {
         return createInstanceWithDependencies(dependencyClass);
     }
 
-//    private void registerListeners() {
-//        components.values().stream()
-//                .filter(component -> component.getClass().isAnnotationPresent(ListenerComponent.class))
-//                .forEach(listener -> registerListener((Listener) listener));
-//    }
-//
-//    private void registerListener(Listener listener) {
-//        this.plugin.getServer().getPluginManager().registerEvents(listener, this.plugin);
-//    }
+    private void registerListeners(String basePackage) {
+        Reflections reflections = new Reflections(basePackage);
+
+        Set<Class<?>> listenerClasses = reflections.getTypesAnnotatedWith(EventListener.class);
+
+        for (Class<?> listenerClass : listenerClasses) {
+            Object listenerInstance = createInstanceWithDependencies(listenerClass);
+            this.configInjector.injectConfigValues(listenerInstance);
+            registerListener((Listener) listenerInstance);
+        }
+    }
+
+    private void registerListener(Listener listener) {
+        this.plugin.getServer().getPluginManager().registerEvents(listener, this.plugin);
+    }
 
     private void registerCommand(Command command) {
         plugin.getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {

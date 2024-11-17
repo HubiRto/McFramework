@@ -2,6 +2,7 @@ package pl.pomoku.mcframework.config;
 
 import lombok.RequiredArgsConstructor;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 import pl.pomoku.mcframework.annotation.Component;
 import pl.pomoku.mcframework.annotation.ConfigProperty;
@@ -20,7 +21,7 @@ public class ConfigInjector<T extends JavaPlugin & ConfigurablePlugin> {
         for (Field field : clazz.getDeclaredFields()) {
             if (field.isAnnotationPresent(ConfigProperty.class)) {
                 ConfigProperty configProperty = field.getAnnotation(ConfigProperty.class);
-                FileConfiguration config = configManager.getConfig(configProperty.fileName());
+                YamlConfiguration config = configManager.getConfig(configProperty.fileName());
 
                 Object value = config.get(configProperty.path());
                 if (value != null) {
