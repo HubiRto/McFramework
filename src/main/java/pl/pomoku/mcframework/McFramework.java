@@ -28,12 +28,16 @@ public class McFramework<T extends JavaPlugin & ConfigurablePlugin> {
     private static final Map<Class<?>, Object> components = new HashMap<>();
     private final T plugin;
 
+    private static boolean isDebugEnabled = false;
+
     private ConfigManager<T> configManager;
     private ConfigInjector<T> configInjector;
 
     public static <T extends JavaPlugin & ConfigurablePlugin> void run(T plugin) {
         McFramework<T> container = new McFramework<>(plugin);
         String basePackage = plugin.getClass().getPackage().getName();
+
+        container.debug();
 
         container.configManager = new ConfigManager<>(plugin);
         container.configInjector = new ConfigInjector<>(container.configManager);
@@ -60,10 +64,17 @@ public class McFramework<T extends JavaPlugin & ConfigurablePlugin> {
             DatabaseManager dbManager = new DatabaseManager(
                     dbConfig,
                     this.configManager.getConfig(dbConfig.configFile()),
-                    this.plugin.getLogger()
+                    this.plugin.getLogger(),
+                    isDebugEnabled
             );
             components.put(DatabaseManager.class, dbManager);
             TableGenerator.createTables(dbManager.getConnection(), basePackage, plugin);
+        }
+    }
+
+    private void debug() {
+        if(plugin.getClass().isAnnotationPresent(Debug.class)) {
+            isDebugEnabled = true;
         }
     }
 
