@@ -68,7 +68,7 @@ public class McFramework<T extends JavaPlugin & ConfigurablePlugin> {
                     isDebugEnabled
             );
             components.put(DatabaseManager.class, dbManager);
-            TableGenerator.createTables(dbManager.getConnection(), basePackage, plugin);
+            TableGenerator.createTables(dbManager.getConnection(), basePackage, plugin, isDebugEnabled);
         }
     }
 

@@ -14,21 +14,25 @@ import java.sql.Statement;
 import java.util.Set;
 
 public class TableGenerator {
-    public static void createTables(Connection connection, String packageName, JavaPlugin plugin) {
+    public static void createTables(Connection connection, String packageName, JavaPlugin plugin, boolean isDebugEnabled) {
         try {
             Reflections reflections = new Reflections(packageName, Scanners.TypesAnnotated);
             Set<Class<?>> entities = reflections.getTypesAnnotatedWith(Entity.class);
             plugin.getServer().getConsoleSender().sendMessage(TextUtil.textToComponent("<gray>Znaleziono <dark_gray>(<aqua>%d</aqua>)</dark_gray> klas encji: ".formatted(entities.size())));
 
             for (Class<?> entityClass : entities) {
-                createTable(connection, entityClass, plugin);
+                createTable(connection, entityClass, plugin, isDebugEnabled);
             }
         } catch (Exception e) {
             plugin.getServer().getConsoleSender().sendMessage(TextUtil.textToComponent("<red>Problem przy wczytywaniu klas encji @Entity"));
+
+            if (isDebugEnabled) {
+                e.printStackTrace();
+            }
         }
     }
 
-    private static void createTable(Connection connection, Class<?> entityClass, JavaPlugin plugin) throws Exception {
+    private static void createTable(Connection connection, Class<?> entityClass, JavaPlugin plugin, boolean isDebugEnabled) throws Exception {
         Entity entity = entityClass.getAnnotation(Entity.class);
         StringBuilder createQuery = new StringBuilder("CREATE TABLE IF NOT EXISTS " + entity.table() + " (");
 
@@ -53,8 +57,16 @@ public class TableGenerator {
         createQuery.append(");");
 
         try (Statement stmt = connection.createStatement()) {
+            if (isDebugEnabled) {
+                plugin.getServer().getConsoleSender().sendMessage(createQuery.toString());
+            }
+
             stmt.execute(createQuery.toString());
             plugin.getServer().getConsoleSender().sendMessage(TextUtil.textToComponent("<gray>Stworzono tablę <light_purple>" + TextUtil.capitalize(entity.table())));
+        } catch (Exception e) {
+            if (isDebugEnabled) {
+                e.printStackTrace();
+            }
         }
     }
 }
